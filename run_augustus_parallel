@@ -1,0 +1,174 @@
+#!/bin/bash
+
+## AUGUSTUS parallel execution:
+## This program will take a multi fasta file and chop it in equal pieces
+## according to the number of processes supplied for parameter -j. Be aware
+## that AUGUSTUS is greedy when it comes to memory. Parallel running of
+## AUGUSTUS is achieved with GNU parallel.
+## Requirements: conda environment with augustus named augustus
+##
+## Tange, O., 2020, GNU Parallel 20201122 ('Biden'), Zenodo, https://doi.org/10.5281/zenodo.4284075
+
+### Get the directory where the program is located
+home=/home/daniel/Programs/augustus_parallel/
+
+### Standard path for a miniconda3 install
+miniconda=~/miniconda3/etc/profile.d/conda.sh
+
+### Check if miniconda3 is install and if yes activate it
+if [[ -f "$miniconda" ]]; then
+    echo "$miniconda exists."
+    source $miniconda
+else
+    echo -e "[error]\tCould not find miniconda install."
+    exit 1
+fi
+
+### Define variable for split_chunk.py
+chop_seq=$home"split_chunk.py"
+
+### Helpfunction in case something goes wrong
+helpFunction()
+{
+   echo ""
+   echo "Run AUGUSTUS in parallel."
+   echo "The AUGUSTUS parameter --uniqueGeneId and --gff3 is set to true by default (necessary)."
+   echo ""
+   echo "Usage: $(basename -- "$0") -f fasta.file.fa -j n -s suffix -p AUGUSTUS_parameters"
+   echo ""
+   echo -e "\t-f Path to fasta file.fa (mandatory)"
+   echo -e "\t-j N chunks of sequences (sequences will be equally distributed)"
+   echo -e "\t-c Number of CPU cores to use (be careful with memory consumption of AUGUSTUS)"
+   echo -e "\t-s Suffix (defaulting to Aug_parallel)"
+   echo -e "\t-p AUGUSTUS parameters: e.g. '--species=arabidopsis,--UTR=on,--progress=true'"
+   echo -e "\t-o Output path (full): /home/user/analysis"
+   echo ""
+   exit 1 # Exit script after printing help
+}
+
+# Parse the parameters
+while getopts "c:f:j:s:p:o:" opt
+do
+   case "$opt" in
+      c ) parameterC="$OPTARG" ;;
+      f ) parameterF="$OPTARG" ;;
+      j ) parameterJ="$OPTARG" ;;
+      s ) parameterS="$OPTARG" ;;
+      p ) parameterP="$OPTARG" ;;
+      o ) parameterO="$OPTARG" ;;
+      ? ) helpFunction ;; # Print helpFunction in case parameter is non-existent
+   esac
+done
+
+### Checking the parameters
+if [ ! -f "$parameterF" ]
+then
+   echo -e "[error]\tNo fasta file supplied.";
+   helpFunction
+fi
+
+if [ -z "$parameterJ" ]
+then
+   echo -e "[warning]\tNo -j set. Defaulting to 1.";
+   parameterJ=1
+fi
+
+if [ -z "$parameterC" ]
+then
+   echo -e "[warning]\tNo -c set. Defaulting to 1.";
+   parameterC=1
+fi
+
+if [ -z "$parameterS" ]
+then
+   echo -e "[warning]\tNo suffix given. Defaulting to: Aug_parallel";
+   parameterS=Aug_parallel
+fi
+
+if [ -z "$parameterP" ]
+then
+   echo -e "[warning]\tNo AUGUSTUS parameters given";
+   helpFunction
+fi
+
+#### Check the output folder: if non is supplied results will be saved in fasta
+#### directory
+if [ -z "$parameterO" ]
+then
+  # If nothing is supplied use fasta path
+  echo -e "[warning]\tNo output path indicated: defaulting to $(dirname $parameterF)"
+  wd=$(dirname $parameterF)
+else
+  # If a output path is supplied use it
+  wd=$parameterO
+fi
+
+### End parameter check
+
+### Activate the AUGUSTUS conda environment
+conda activate augustus
+
+### Convert the supplied AUGUSTUS parameters from e.g. '--species=arabidopsis,--gff3=on'
+### to '--species=arabidopsis --gff3=on' and save them in parameterA
+### Also check if output is going to be gff3 or standard gtf
+IFS=','
+for x in $parameterP
+do
+  parameterA+=" "$x
+done
+
+file_name=$(basename -- $parameterF)
+
+echo -e "[info]\tWorking dir:          $wd"
+echo -e "[info]\tOutput dir:           $parameterO"
+echo -e "[info]\tChunks:               $parameterJ"
+echo -e "[info]\tCPUs:                 $parameterC"
+echo -e "[info]\tFasta:                $parameterF"
+echo -e "[info]\tAUGUSTUS parameters:  $parameterA"
+echo -e "[info]\tGFF3 mode:            $gff3_mode"
+
+### Create a temporary folder to save the fasta chuncks
+mkdir $wd"/tmp/"
+
+### Run the python script to chop the multi fasta file into pieces
+a=1
+if [ "$parameterJ" -gt "$a" ]
+then
+    python $chop_seq $parameterF $parameterJ $parameterS $wd 2> $wd"/tmp/split_chunk.error.log"
+else
+    cp $parameterF $wd"/tmp/"
+fi
+
+### Save path of generated fasta file chuncks
+chunck_files=$wd"/tmp/"*.fa
+
+### If gff3 mode is enabled for augustus give it a different output file ending
+IFS=' '
+for f in $chunck_files
+do
+    file=$(basename -- $f)
+    echo -e "augustus$parameterA --uniqueGeneId=true --gff3=on $f > ${wd}/tmp/${file}.gff3" >> $wd"/tmp/aug_cmd.txt"
+done
+
+### Read all the written AUGUSTUS commands to GNU parallel and execute n jobs
+### as indicated in parallel
+cat $wd"/tmp/aug_cmd.txt" | parallel --gnu \
+                                     --progress \
+                                     --retries 4 \
+                                     --resume-failed \
+                                     -j $parameterC \
+                                     --joblog $wd"/tmp/"$parameterS".parallel.log"
+
+### Concatenate all GFF3 files into one
+chunck_gff3=$wd"/tmp/"*.gff3
+touch $wd"/"$file_name".aug.gff3"
+for f in $chunck_gff3
+do
+  cat $f >> $wd"/"$file_name".aug.gff3"
+done
+
+### Use the AUGUSTUS perl script getAnnoFasta.pl to extract the mRNA, cds and
+### Protein sequences of the predicted genes
+getAnnoFasta.pl --seqfile=$parameterF $wd"/"$file_name".aug.gff3"
+
+conda deactivate
