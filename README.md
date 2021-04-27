@@ -55,12 +55,12 @@ The AUGUSTUS parameter --uniqueGeneId is set to true by default (necessary).
 
 Usage: run_augustus_parallel -f fasta.file.fa -j n -c n -s suffix -p AUGUSTUS_parameters
 
-	-f Path to fasta file.fa (mandatory)
-	-j N chunks to generate from the multifasta file
+    -f Path to fasta file.fa (mandatory)
+    -j N chunks to generate from the multifasta file
     -c Number of CPUs to use (careful with the memomry consumption of AUGUSTUS)
-	-s Suffix (defaulting to Aug_parallel)
-	-p AUGUSTUS parameters: e.g. '--species=arabidopsis,--gff3=on,--UTR=on,--progress=true'
-	-o Output path (full): /home/user/analysis
+    -s Suffix (defaulting to Aug_parallel)
+    -p AUGUSTUS parameters: e.g. '--species=arabidopsis,--gff3=on,--UTR=on,--progress=true'
+    -o Output path (full): /home/user/analysis
 ```
 
 The python script split_chunk.py will split the multifasta file into equal indicated parts. For highly fragmented genomes it might be good to first check the total number of sequences in the file:
