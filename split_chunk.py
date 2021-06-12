@@ -28,7 +28,7 @@ def main():
         output = sys.argv[4]
     #2. If none of the above works quit.
     else:
-        exit("[info]\t\tpython find_gc.py fasta.fa description")
+        exit("[info]\t\tpython split_chunk.py fasta.fa 111(nr. of chunks) description output/path/")
 
     gc = ''
     new_file_gene = ''
